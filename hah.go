@@ -138,7 +138,7 @@ func (ps *Ports) ListenAndServe(ctx context.Context) error {
 				go func(conn net.Conn) {
 					defer conn.Close()
 					laddr, raddr := conn.LocalAddr(), conn.RemoteAddr()
-					pref := fmt.Sprintf("tcp: %s - %s", laddr, raddr)
+					pref := fmt.Sprintf("tcp %s - %s", laddr, raddr)
 					glog.Infof("%s: connected", pref)
 					rd := bufio.NewReader(conn)
 					for {
@@ -173,7 +173,7 @@ func (ps *Ports) ListenAndServe(ctx context.Context) error {
 				data := make([]byte, 65536)
 				n, raddr, err := udpConn.ReadFromUDP(data)
 				if err == nil || n > 0 {
-					pref := fmt.Sprintf("udp: %s - %s", laddr, raddr)
+					pref := fmt.Sprintf("udp %s - %s", laddr, raddr)
 					glog.Infof("%s: received %d bytes", pref, n)
 					go func(data []byte, n int, raddr *net.UDPAddr) {
 						line := NewEchoLine(laddr, raddr, data[:n])
@@ -260,25 +260,25 @@ func (heh *HTTPEchoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ed := heh.prepareEchoData(r)
 
 	if websocket.IsWebSocketUpgrade(r) {
-		pref := fmt.Sprintf("%s:%d - %s:%d", ed.LocalIP, ed.LocalPort, ed.RemoteIP, ed.RemotePort)
+		pref := fmt.Sprintf("ws %s:%d - %s:%d", ed.LocalIP, ed.LocalPort, ed.RemoteIP, ed.RemotePort)
 		upgrader := &websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		}
 		wsConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			glog.Warningf("ws %s: %v", pref, err)
+			glog.Warningf("%s: %v", pref, err)
 			return
 		}
-		glog.Infof("ws %s: connected", pref)
+		glog.Infof("%s: connected", pref)
 		for {
 			_, data, err := wsConn.ReadMessage()
 			if err != nil {
-				glog.Warningf("ws %s: read message: %v", pref, err)
+				glog.Warningf("%s: read message: %v", pref, err)
 				return
 			}
 			ed.Data = string(data)
 			if err := wsConn.WriteMessage(websocket.TextMessage, ed.Line()); err != nil {
-				glog.Warningf("ws %s: write message: %v", pref, err)
+				glog.Warningf("%s: write message: %v", pref, err)
 				return
 			}
 		}
