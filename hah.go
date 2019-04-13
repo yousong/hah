@@ -73,10 +73,10 @@ type EchoData struct {
 	RemoteIP   string    `json:"remote_ip"`
 	RemotePort int       `json:"remote_port"`
 
-	PeerIP     string      `json:"peer_ip"`
-	HttpHost   string      `json:"http_host"`
-	HttpUri    string      `json:"http_uri"`
-	HttpHeader http.Header `json:"http_headers"`
+	PeerIP     string      `json:"peer_ip,omitempty"`
+	HttpHost   string      `json:"http_host,omitempty"`
+	HttpUri    string      `json:"http_uri,omitempty"`
+	HttpHeader http.Header `json:"http_headers,omitempty"`
 }
 
 // Line marshals EchoData into a oneline JSON format
