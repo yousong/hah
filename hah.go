@@ -350,9 +350,10 @@ func (hlh *HTTPLogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b := &bytes.Buffer{}
 	if heh, ok := hlh.handler.(*HTTPEchoHandler); ok {
 		conn := heh.RequestConn(r)
-		pref := fmt.Sprintf("http %s - %s: %s", conn.LocalAddr(), conn.RemoteAddr(), elapsed)
+		pref := fmt.Sprintf("http %s - %s: ", conn.LocalAddr(), conn.RemoteAddr())
 		b.WriteString(pref)
 	}
+	b.WriteString(elapsed.String())
 	b.WriteString(time.Now().Format(" [02/Jan/2006:15:04:05 -0700]"))
 	b.WriteString(fmt.Sprintf(` "%s %s %s"`, r.Method, r.URL, r.Proto))
 	b.WriteString(fmt.Sprintf(" %d %d", lrw.statusCode, lrw.written))
