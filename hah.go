@@ -411,7 +411,7 @@ func main() {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	go func() {
 		ch := make(chan os.Signal)
-		signal.Notify(ch, syscall.SIGINT)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 		select {
 		case sig := <-ch:
 			glog.Infof("signal %s received", sig)
