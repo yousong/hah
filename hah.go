@@ -19,6 +19,8 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/gorilla/websocket"
+
+	"github.com/yousong/proxyproto"
 )
 
 const (
@@ -34,31 +36,66 @@ var IdxPortsNames = map[int]string{
 	IdxPortsUDP:  "UDP",
 }
 
-// Ports is a container for protocol ports
-type Ports struct {
-	PortsStr [IdxPortsSize]string
-	Ports    [IdxPortsSize][]int
+type Port struct {
+	Port  int
+	Proxy bool
 }
 
-// Parse parses PortsStr into Ports
+func NewPort(s string, proxy bool) (*Port, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	p := &Port{
+		Proxy: proxy,
+	}
+	parts := strings.Split(s, "/")
+	{
+		port, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid port %s: %v", parts[0], err)
+		}
+		if port < 0 || port > 65535 {
+			return nil, fmt.Errorf("invalid port %s: not in range", parts[0])
+		}
+		p.Port = port
+	}
+	parts = parts[1:]
+	for _, part := range parts {
+		switch part {
+		case "proxy=1":
+			p.Proxy = true
+		case "proxy=0":
+			p.Proxy = false
+		default:
+			glog.Warningf("unknown port option: %s", part)
+		}
+	}
+	return p, nil
+}
+
+// Ports is a container for protocol ports
+type Ports struct {
+	PortSpecs [IdxPortsSize]string
+	Ports     [IdxPortsSize][]*Port
+	Proxy     bool
+}
+
+// Parse parses PortSpecs into Ports
 //
 // It returns error if any of them are invalid
 func (ps *Ports) Parse() error {
 	for i := 0; i < IdxPortsSize; i++ {
-		s := ps.PortsStr[i]
-		if s == "" {
-			continue
-		}
-		for _, p := range strings.Split(s, ",") {
-			p = strings.TrimSpace(p)
-			n, err := strconv.Atoi(p)
+		specs := ps.PortSpecs[i]
+		for _, spec := range strings.Split(specs, ",") {
+			port, err := NewPort(spec, ps.Proxy)
 			if err != nil {
-				return fmt.Errorf("Parsing %s port %s: %v", IdxPortsNames[i], p, err)
+				return err
 			}
-			if n < 0 || n > 65535 {
-				return fmt.Errorf("Parsing %s port %s: not in range", IdxPortsNames[i], p)
+			if port == nil {
+				continue
 			}
-			ps.Ports[i] = append(ps.Ports[i], n)
+			ps.Ports[i] = append(ps.Ports[i], port)
 		}
 	}
 	return nil
@@ -119,9 +156,14 @@ func NewEchoLine(laddr, raddr net.Addr, data []byte) []byte {
 // ListenAndServe listens and serves on specified protocols and ports
 func (ps *Ports) ListenAndServe(ctx context.Context) error {
 	for _, p := range ps.Ports[IdxPortsTCP] {
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
 		if err != nil {
 			return err
+		}
+		if p.Proxy {
+			listener = &proxyproto.Listener{
+				Listener: listener,
+			}
 		}
 		defer listener.Close()
 
@@ -161,40 +203,54 @@ func (ps *Ports) ListenAndServe(ctx context.Context) error {
 	}
 
 	for _, p := range ps.Ports[IdxPortsUDP] {
-		udpConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: p})
+		var packetConn net.PacketConn
+		packetConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: p.Port})
 		if err != nil {
 			return err
 		}
-		defer udpConn.Close()
+		if p.Proxy {
+			packetConn = proxyproto.NewPacketConn(packetConn)
+		}
+		defer packetConn.Close()
 
-		go func(udpConn *net.UDPConn) {
-			laddr := udpConn.LocalAddr()
+		go func(packetConn net.PacketConn) {
+			laddr := packetConn.LocalAddr()
 			for {
 				data := make([]byte, 65536)
-				n, raddr, err := udpConn.ReadFromUDP(data)
+				n, remoteAddr, err := packetConn.ReadFrom(data)
 				if err == nil || n > 0 {
-					pref := fmt.Sprintf("udp %s - %s", laddr, raddr)
+					realAddr := remoteAddr
+					if addr, ok := remoteAddr.(*proxyproto.Addr); ok {
+						remoteAddr = addr.Addr
+						realAddr = addr.RemoteAddr()
+					}
+					pref := fmt.Sprintf("udp %s - %s", laddr, realAddr)
 					glog.Infof("%s: received %d bytes", pref, n)
-					go func(data []byte, n int, raddr *net.UDPAddr) {
-						line := NewEchoLine(laddr, raddr, data[:n])
-						written, err := udpConn.WriteToUDP(line, raddr)
+					{
+						line := NewEchoLine(laddr, realAddr, data[:n])
+						written, err := packetConn.WriteTo(line, remoteAddr)
 						if err != nil || n != written {
-							glog.Errorf("%s: write %d, written %d, err: %v", pref, len(data), n, err)
+							glog.Errorf("%s: write %d, written %d, err: %v", pref, len(line), n, err)
 						}
-					}(data, n, raddr)
+					}
 					if err != nil {
 						glog.Errorf("%s: err %v", pref, err)
 						return
 					}
 				}
 			}
-		}(udpConn)
+		}(packetConn)
 	}
 
 	for _, p := range ps.Ports[IdxPortsHTTP] {
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
 		if err != nil {
 			return err
+		}
+		if p.Proxy {
+			listener = &proxyproto.Listener{
+				Listener: listener,
+			}
 		}
 		go func(listener net.Listener) {
 			echoHandler := NewHTTPEchoHandler()
@@ -400,9 +456,10 @@ func main() {
 	ports := Ports{}
 	flag.Set("stderrthreshold", "0")
 	flag.Set("logtostderr", "true")
-	flag.StringVar(&ports.PortsStr[IdxPortsHTTP], "http", "", "ports serving HTTP")
-	flag.StringVar(&ports.PortsStr[IdxPortsTCP], "tcp", "", "ports serving TCP")
-	flag.StringVar(&ports.PortsStr[IdxPortsUDP], "udp", "", "ports serving UDP")
+	flag.BoolVar(&ports.Proxy, "proxy", false, "turn on HAProxy PROXY protocol")
+	flag.StringVar(&ports.PortSpecs[IdxPortsHTTP], "http", "", "ports serving HTTP.  Separated by comma.  Each can have options concatenated with slash, e.g. 80/proxy=0")
+	flag.StringVar(&ports.PortSpecs[IdxPortsTCP], "tcp", "", "ports serving TCP.  Separated by comma.  Each can have options concatenated with slash, e.g. 80/proxy=0")
+	flag.StringVar(&ports.PortSpecs[IdxPortsUDP], "udp", "", "ports serving UDP.  Separated by comma.  Each can have options concatenated with slash, e.g. 80/proxy=0")
 	flag.Parse()
 
 	if err := ports.Parse(); err != nil {
