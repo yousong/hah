@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hah
+spec:
+  selector:
+    app: hah
+  ports:
+    - name: tcp-2022
+      protocol: TCP
+      port: 2022
+      targetPort: 2022
+    - name: tcp-2080
+      protocol: TCP
+      port: 2080
+      targetPort: 2080
+    - name: udp-2053
+      protocol: UDP
+      port: 2053
+      targetPort: 2053
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hah
+  labels:
+    app: hah
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hah
+  template:
+    metadata:
+      labels:
+        app: hah
+    spec:
+      containers:
+      - name: hah
+        image: yousong/hah:v1.0.1
+        args:
+          - "-http=2080"
+          - "-tcp=2022"
+          - "-udp=2053"
