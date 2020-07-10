@@ -7,11 +7,14 @@ build:
 	CGO_ENABLED=0 go build -tags 'netgo' -ldflags '-extldflags "-static"' .
 .PHONY: build
 
-release: build
+checkVersion=echo "$(VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$'
 release:
-	echo "$(VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$'
+	$(checkVersion)
 	git tag --force "$(VERSION)" HEAD
 	git push origin HEAD --tags
+
+docker-image:
+	$(checkVersion)
 	docker buildx build \
 		-f Dockerfile \
 		--platform linux/amd64,linux/arm64 \

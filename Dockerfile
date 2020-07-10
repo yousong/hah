@@ -1,3 +1,10 @@
+FROM golang:alpine AS builder
+RUN mkdir -p /build
+ADD . /build
+WORKDIR /build
+RUN go build -o hah .
+
+
 FROM alpine:3.12
 MAINTAINER Yousong Zhou <yszhou4tech@gmail.com>
 
@@ -8,7 +15,7 @@ EXPOSE \
 	2023/tcp \
 	2053/udp
 
-ADD hah /
+COPY --from=builder /build/hah /
 
 ENTRYPOINT ["/hah"]
 CMD [ \
